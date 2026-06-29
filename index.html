@@ -6,23 +6,24 @@
 <title>Nossa Casa</title>
 
 <!-- PWA: instalar na tela do iPhone -->
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Nossa Casa" />
 <meta name="theme-color" content="#1E3A5F" />
+<link rel="icon" href="data:," />
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='40' fill='%231E3A5F'/%3E%3Ctext x='90' y='125' font-size='100' text-anchor='middle'%3E%F0%9F%8F%A0%3C/text%3E%3C/svg%3E" />
 
 <style>
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #F1F5F9; overscroll-behavior: none; }
-  input { font-size: 16px !important; } /* evita zoom no iPhone */
+  input { font-size: 16px !important; }
   #erro { display:none; padding:24px; font-family: -apple-system, sans-serif; color:#DC2626; line-height:1.5; }
 </style>
 
-<!-- Bibliotecas (React, Babel para rodar o app, Supabase para sincronizar) -->
+<!-- Bibliotecas: React + Supabase (o app já vem pronto) -->
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -30,877 +31,524 @@
 <div id="erro"></div>
 
 <!-- ============================================================
-     CONFIGURAÇÃO DO SUPABASE
-     >>> SUBSTITUA os dois valores abaixo pelos do SEU projeto.
-     (O guia explica onde encontrar (Project Settings > API).)
+     CONFIGURAÇÃO DO SUPABASE (suas chaves já estão coladas)
      ============================================================ -->
 <script>
   window.SUPABASE_URL  = "https://zrdwcdopeeclveozzkmv.supabase.co";
   window.SUPABASE_KEY  = "sb_publishable_OR5OXSyHz82RxKE9MMuS3A_ZEHIjc-D";
 </script>
 
-<script type="text/babel" data-presets="react">
-const { useState, useEffect, useCallback, useRef } = React;
-
-// Conecta no Supabase
-let sb = null;
-try {
-  if (window.SUPABASE_URL && !window.SUPABASE_URL.startsWith("COLE_AQUI")) {
-    sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
-  }
-} catch (e) { console.error(e); }
-
-
-
-/* ============================================================
-   CASA — Gestão de Compras & Tarefas da Casa
-   - Várias listas (Mercado, Casa por cômodo, etc.)
-   - Calculadora com promoções "leve X por Y"
-   - Histórico de compras finalizadas
-   - Cômodos misturando itens + tarefas
-   - Sincronização via Supabase (nuvem, tempo real entre dispositivos)
-   ============================================================ */
-
-const COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#8B5CF6", "#EC4899", "#EF4444", "#14B8A6", "#6B7280"];
-const BGS = {
-  "#F59E0B": "#FEF3C7", "#3B82F6": "#DBEAFE", "#10B981": "#D1FAE5",
-  "#8B5CF6": "#EDE9FE", "#EC4899": "#FCE7F3", "#EF4444": "#FEE2E2",
-  "#14B8A6": "#CCFBF1", "#6B7280": "#F3F4F6",
-};
-const ICONS = ["🛒", "🏠", "🛏️", "🛋️", "🍳", "🚿", "🌳", "🧹", "🔧", "💡", "🧊", "🪥", "📦", "🪴"];
-
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const num = (v) => {
-  if (typeof v === "number") return v;
-  const n = parseFloat(String(v).replace(",", "."));
-  return isNaN(n) ? 0 : n;
-};
-const brl = (n) => "R$ " + (num(n)).toFixed(2).replace(".", ",");
-
-/* ---------- Dados iniciais (a partir da sua lista) ---------- */
-const SEED = {
-  lists: [
-    {
-      id: "mercado",
-      name: "Mercado",
-      icon: "🛒",
-      color: "#F59E0B",
-      type: "shopping",
-      feature: "promo",
-      budget: 0,
-      areas: ["Armário", "Geladeira", "Banheiro", "Alimentos", "Produtos de Limpeza", "Mistura"],
-      items: [
-        // Armário
-        { id: uid(), name: "Açúcar", qty: 10, unit: "pct", note: "Atacado", area: "Armário", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Farofa", qty: 1, unit: "pct", note: "", area: "Armário", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Nescau", qty: 1, unit: "un", note: "", area: "Armário", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Bolachas", qty: 1, unit: "un", note: "Ver variedade", area: "Armário", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        // Geladeira
-        { id: uid(), name: "Manteiga", qty: 2, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Requeijão", qty: 1, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Iogurte", qty: 1, unit: "un", note: "Ver quantidade", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Maionese", qty: 1, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Ketchup", qty: 1, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        // Banheiro
-        { id: uid(), name: "Shampoo", qty: 2, unit: "un", note: "", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Condicionador", qty: 2, unit: "un", note: "", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Pasta de Dente", qty: 1, unit: "un", note: "", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Sabonete", qty: 1, unit: "un", note: "Ver quantidade", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        // Alimentos
-        { id: uid(), name: "Macarrão", qty: 6, unit: "pct", note: "", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Massa de Tomate", qty: 6, unit: "un", note: "", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Leite", qty: 1, unit: "un", note: "Ver quantidade", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Sucos", qty: 1, unit: "un", note: "Ver sabores", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Refrigerante", qty: 1, unit: "un", note: "Ver sabores", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        // Produtos de Limpeza
-        { id: uid(), name: "Sabão em Pó", qty: 2, unit: "cx", note: "", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Papel Higiênico", qty: 1, unit: "fardo", note: "Atacado", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Detergente", qty: 8, unit: "un", note: "Atacado", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Amaciante", qty: 1, unit: "un", note: "", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Água Sanitária", qty: 1, unit: "un", note: "", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        // Mistura
-        { id: uid(), name: "Frango", qty: 1, unit: "kg", note: "", area: "Mistura", price: 0, promoQty: 0, promoPrice: 0, done: false },
-        { id: uid(), name: "Carne", qty: 1, unit: "kg", note: "", area: "Mistura", price: 0, promoQty: 0, promoPrice: 0, done: false },
-      ],
-    },
-    {
-      id: "casa",
-      name: "Casa",
-      icon: "🏠",
-      color: "#10B981",
-      type: "shopping",
-      feature: "installment",
-      budget: 0,
-      areas: ["Laje", "Área", "Quarto", "Cozinha", "Sala", "Banheiro"],
-      items: [],
-    },
-  ],
-  history: [{"id": "hist_inicial_310526", "listName": "Mercado", "icon": "🛒", "date": "2026-05-31T15:23:00.000Z", "total": 1351.13, "paid": 1355.88, "items": [{"name": "Açúcar", "qty": "10 pct", "unit": "", "total": 25.5}, {"name": "Café", "qty": "5 pct", "unit": "", "total": 105.0}, {"name": "Nescau", "qty": "1 un", "unit": "", "total": 36.0}, {"name": "Bolachas", "qty": "1 un", "unit": "", "total": 51.0}, {"name": "Manteiga", "qty": "1 un", "unit": "", "total": 31.0}, {"name": "Requeijão", "qty": "2 un", "unit": "", "total": 15.0}, {"name": "Iogurte", "qty": "1 un", "unit": "", "total": 0}, {"name": "Maionese", "qty": "1 un", "unit": "", "total": 16.0}, {"name": "Ketchup", "qty": "1 un", "unit": "", "total": 22.0}, {"name": "Shampoo", "qty": "1 un", "unit": "", "total": 35.0}, {"name": "Shampoo", "qty": "2 un", "unit": "", "total": 0}, {"name": "Pasta de Dente", "qty": "2 un", "unit": "", "total": 19.8}, {"name": "Sabonete", "qty": "1 un", "unit": "", "total": 13.0}, {"name": "Macarrão", "qty": "1 pct", "unit": "", "total": 12.0}, {"name": "Massa de Tomate", "qty": "6 un", "unit": "", "total": 10.74}, {"name": "Leite", "qty": "6 un", "unit": "", "total": 32.34}, {"name": "Sucos", "qty": "1 un", "unit": "", "total": 22.0}, {"name": "Refrigerante", "qty": "6 un", "unit": "", "total": 42.0}, {"name": "Sabão em Pó", "qty": "1 cx", "unit": "", "total": 38.0}, {"name": "Papel Higiênico", "qty": "1 fardo", "unit": "", "total": 23.0}, {"name": "Detergente", "qty": "8 un", "unit": "", "total": 18.0}, {"name": "Amaciante", "qty": "1 un", "unit": "", "total": 25.0}, {"name": "Água Sanitária", "qty": "1 un", "unit": "", "total": 10.8}, {"name": "Frango", "qty": "1 kg", "unit": "", "total": 0}, {"name": "Carne", "qty": "1 kg", "unit": "", "total": 37.0}, {"name": "Milhos", "qty": "2 un", "unit": "", "total": 10.0}, {"name": "Fubá", "qty": "3 un", "unit": "", "total": 5.7}, {"name": "Creme de Leite", "qty": "4 un", "unit": "", "total": 7.6}, {"name": "Molho de Alho", "qty": "1 un", "unit": "", "total": 7.0}, {"name": "Tapioca", "qty": "1 un", "unit": "", "total": 12.0}, {"name": "Leite Condensado", "qty": "3 un", "unit": "", "total": 16.5}, {"name": "Azeite", "qty": "1 un", "unit": "", "total": 14.0}, {"name": "Massa de Bolo", "qty": "1 un", "unit": "", "total": 0}, {"name": "Ovos", "qty": "2 un", "unit": "", "total": 59.8}, {"name": "Gillete", "qty": "2 un", "unit": "", "total": 35.8}, {"name": "Absorvente", "qty": "1 un", "unit": "", "total": 69.0}, {"name": "Sabonete Íntimo", "qty": "1 un", "unit": "", "total": 25.0}, {"name": "Fralda", "qty": "2 un", "unit": "", "total": 139.8}, {"name": "Lenço umedecido", "qty": "1 un", "unit": "", "total": 36.0}, {"name": "Bombil", "qty": "2 un", "unit": "", "total": 3.4}, {"name": "Bucha de Louça", "qty": "1 un", "unit": "", "total": 4.6}, {"name": "Saco de Lixo", "qty": "1 un", "unit": "", "total": 15.0}, {"name": "Pães", "qty": "1 un", "unit": "", "total": 31.0}, {"name": "Pão de HotDog", "qty": "2 un", "unit": "", "total": 0}, {"name": "Bisnaguinha", "qty": "2 un", "unit": "", "total": 0}, {"name": "Batata Palha", "qty": "2 un", "unit": "", "total": 0}, {"name": "Batata Frita", "qty": "1 un", "unit": "", "total": 20.9}, {"name": "Frigideira", "qty": "1 un", "unit": "", "total": 0}, {"name": "Queijo Ralado", "qty": "3 un", "unit": "", "total": 9.0}, {"name": "Hambúrguer", "qty": "1 un", "unit": "", "total": 0}, {"name": "Pipoca", "qty": "1 un", "unit": "", "total": 4.0}, {"name": "Álcool", "qty": "1 un", "unit": "", "total": 9.0}, {"name": "Semorim", "qty": "1 un", "unit": "", "total": 30.0}, {"name": "Raid", "qty": "1 un", "unit": "", "total": 16.9}, {"name": "Chupeta", "qty": "1 un", "unit": "", "total": 10.0}, {"name": "Contonete", "qty": "3 un", "unit": "", "total": 3.75}, {"name": "Desodorante", "qty": "2 un", "unit": "", "total": 39.8}, {"name": "Creme de Cabelo", "qty": "1 un", "unit": "", "total": 8.9}, {"name": "Fio Dental", "qty": "1 un", "unit": "", "total": 4.5}, {"name": "Sabão líquido", "qty": "1 un", "unit": "", "total": 25.0}, {"name": "Faca", "qty": "1 un", "unit": "", "total": 16.0}, {"name": "Macarrão de Uakissoba", "qty": "1 un", "unit": "", "total": 12.0}, {"name": "Sacolas", "qty": "10 un", "unit": "", "total": 9.0}]}],
-};
-
-/* ---------- cálculo de preço de um item (com promo) ---------- */
-function itemTotal(it) {
-  const qty = num(it.qty);
-  const price = num(it.price);
-  const promoQty = num(it.promoQty);
-  const promoPrice = num(it.promoPrice);
-  // Promoção por quantidade mínima: comprou promoQty OU MAIS → todos pelo promoPrice
-  if (promoQty > 0 && promoPrice > 0 && qty >= promoQty) {
-    return qty * promoPrice;
-  }
-  return qty * price;
-}
-
-function App() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [activeList, setActiveList] = useState(null);
-  const [view, setView] = useState("lists"); // lists | list | history
-  const [filter, setFilter] = useState("all"); // all | pending | done
-  const [editItem, setEditItem] = useState(null);
-  const [showNewList, setShowNewList] = useState(false);
-  const [showFinish, setShowFinish] = useState(false);
-  const [showBudget, setShowBudget] = useState(false);
-  const [confirmAsk, setConfirmAsk] = useState(null); // { title, message, danger, onYes }
-  const [toast, setToast] = useState("");
-
-  const lastSync = useRef("");      // última string vista do servidor
-  const saveTimer = useRef(null);   // timer da gravação adiada
-  const modalOpen = useRef(false);  // pausa o polling durante edição
-
-  // mantém modalOpen atualizado conforme qualquer modal abre/fecha
-  modalOpen.current = !!(editItem || showNewList || showFinish || showBudget || confirmAsk);
-
-  /* ---- carregar do Supabase ---- */
-  const load = useCallback(async () => {
-    try {
-      const { data: row, error } = await sb
-        .from("casa_data").select("payload").eq("id", "casa_main").maybeSingle();
-      if (error) throw error;
-      if (row && row.payload) {
-        lastSync.current = JSON.stringify(row.payload);
-        setData(row.payload);
-      } else {
-        lastSync.current = JSON.stringify(SEED);
-        setData(SEED);
-        await sb.from("casa_data").upsert({ id: "casa_main", payload: SEED });
-      }
-    } catch (e) {
-      console.error("Erro ao carregar:", e);
-      setData(SEED);
+<script>
+// Espera React, ReactDOM e Supabase carregarem antes de iniciar o app
+function iniciarApp() {
+// App pronto em JavaScript puro
+(() => {
+  // to_compile.jsx
+  var { useState, useEffect, useCallback, useRef } = React;
+  var sb = null;
+  try {
+    if (window.SUPABASE_URL && !window.SUPABASE_URL.startsWith("COLE_AQUI")) {
+      sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
     }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  /* ---- salvar no Supabase (gravação adiada) ---- */
-  const save = useCallback((next) => {
-    setData(next);
-    const str = JSON.stringify(next);
-    lastSync.current = str;
-    clearTimeout(saveTimer.current);
-    setSyncing(true);
-    saveTimer.current = setTimeout(async () => {
-      try { await sb.from("casa_data").upsert({ id: "casa_main", payload: next }); }
-      catch (e) { console.error("Erro ao salvar:", e); }
-      setSyncing(false);
-    }, 600);
-  }, []);
-
-  /* ---- recarregar p/ ver mudanças da esposa (só com app visível) ---- */
-  useEffect(() => {
-    const tick = async () => {
-      if (document.hidden) return;          // não roda em segundo plano
-      if (modalOpen.current) return;        // não interrompe edição
-      try {
-        const { data: row } = await sb
-          .from("casa_data").select("payload").eq("id", "casa_main").maybeSingle();
-        if (row && row.payload) {
-          const str = JSON.stringify(row.payload);
-          if (str !== lastSync.current) { lastSync.current = str; setData(row.payload); }
-        }
-      } catch {}
-    };
-    const t = setInterval(tick, 12000);     // 12s em vez de 4s
-    return () => clearInterval(t);
-  }, []);
-
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2200); };
-
-  if (loading || !data) {
-    return (
-      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center", color: "#94A3B8" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>🏠</div>
-          Carregando...
-        </div>
-      </div>
-    );
+  } catch (e) {
+    console.error(e);
   }
-
-  const list = data.lists.find((l) => l.id === activeList);
-
-  /* ================= MUTATIONS ================= */
-  const updateList = (listId, fn) => {
-    const next = { ...data, lists: data.lists.map((l) => (l.id === listId ? fn(l) : l)) };
-    save(next);
+  var COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#8B5CF6", "#EC4899", "#EF4444", "#14B8A6", "#6B7280"];
+  var BGS = {
+    "#F59E0B": "#FEF3C7",
+    "#3B82F6": "#DBEAFE",
+    "#10B981": "#D1FAE5",
+    "#8B5CF6": "#EDE9FE",
+    "#EC4899": "#FCE7F3",
+    "#EF4444": "#FEE2E2",
+    "#14B8A6": "#CCFBF1",
+    "#6B7280": "#F3F4F6"
   };
-
-  const toggleItem = (id) =>
-    updateList(activeList, (l) => ({ ...l, items: l.items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)) }));
-
-  const saveItem = (item) => {
-    if (item._new) {
-      const { _new, ...clean } = item;
-      updateList(activeList, (l) => ({ ...l, items: [...l.items, { ...clean, id: uid() }] }));
-    } else {
-      updateList(activeList, (l) => ({ ...l, items: l.items.map((i) => (i.id === item.id ? item : i)) }));
-    }
-    setEditItem(null);
+  var ICONS = ["\u{1F6D2}", "\u{1F3E0}", "\u{1F6CF}\uFE0F", "\u{1F6CB}\uFE0F", "\u{1F373}", "\u{1F6BF}", "\u{1F333}", "\u{1F9F9}", "\u{1F527}", "\u{1F4A1}", "\u{1F9CA}", "\u{1FAA5}", "\u{1F4E6}", "\u{1FAB4}"];
+  var uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  var num = (v) => {
+    if (typeof v === "number") return v;
+    const n = parseFloat(String(v).replace(",", "."));
+    return isNaN(n) ? 0 : n;
   };
-
-  const deleteItem = (id) => {
-    updateList(activeList, (l) => ({ ...l, items: l.items.filter((i) => i.id !== id) }));
-    setEditItem(null);
-  };
-
-  const addList = (name, icon, color, areas = []) => {
-    const nl = { id: uid(), name, icon, color, type: "shopping", feature: "promo", budget: 0, areas, items: [] };
-    save({ ...data, lists: [...data.lists, nl] });
-    setShowNewList(false);
-    setActiveList(nl.id);
-    setView("list");
-  };
-
-  const deleteList = (id) => {
-    save({ ...data, lists: data.lists.filter((l) => l.id !== id) });
-    setView("lists");
-  };
-
-  const setBudget = (value) => {
-    updateList(activeList, (l) => ({ ...l, budget: num(value) }));
-    setShowBudget(false);
-  };
-
-  const resetModel = () => {
-    setConfirmAsk({
-      title: "Atualizar estrutura?",
-      message: "Isto recarrega a estrutura padrão (Mercado e Casa) e substitui as listas atuais. Seu histórico é mantido.",
-      danger: false,
-      onYes: () => {
-        save({ ...SEED, history: data.history });
-        setView("lists");
-        flash("Estrutura atualizada!");
+  var brl = (n) => "R$ " + num(n).toFixed(2).replace(".", ",");
+  var SEED = {
+    lists: [
+      {
+        id: "mercado",
+        name: "Mercado",
+        icon: "\u{1F6D2}",
+        color: "#F59E0B",
+        type: "shopping",
+        feature: "promo",
+        budget: 0,
+        areas: ["Arm\xE1rio", "Geladeira", "Banheiro", "Alimentos", "Produtos de Limpeza", "Mistura"],
+        items: [
+          // Armário
+          { id: uid(), name: "A\xE7\xFAcar", qty: 10, unit: "pct", note: "Atacado", area: "Arm\xE1rio", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Farofa", qty: 1, unit: "pct", note: "", area: "Arm\xE1rio", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Nescau", qty: 1, unit: "un", note: "", area: "Arm\xE1rio", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Bolachas", qty: 1, unit: "un", note: "Ver variedade", area: "Arm\xE1rio", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          // Geladeira
+          { id: uid(), name: "Manteiga", qty: 2, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Requeij\xE3o", qty: 1, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Iogurte", qty: 1, unit: "un", note: "Ver quantidade", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Maionese", qty: 1, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Ketchup", qty: 1, unit: "un", note: "", area: "Geladeira", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          // Banheiro
+          { id: uid(), name: "Shampoo", qty: 2, unit: "un", note: "", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Condicionador", qty: 2, unit: "un", note: "", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Pasta de Dente", qty: 1, unit: "un", note: "", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Sabonete", qty: 1, unit: "un", note: "Ver quantidade", area: "Banheiro", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          // Alimentos
+          { id: uid(), name: "Macarr\xE3o", qty: 6, unit: "pct", note: "", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Massa de Tomate", qty: 6, unit: "un", note: "", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Leite", qty: 1, unit: "un", note: "Ver quantidade", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Sucos", qty: 1, unit: "un", note: "Ver sabores", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Refrigerante", qty: 1, unit: "un", note: "Ver sabores", area: "Alimentos", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          // Produtos de Limpeza
+          { id: uid(), name: "Sab\xE3o em P\xF3", qty: 2, unit: "cx", note: "", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Papel Higi\xEAnico", qty: 1, unit: "fardo", note: "Atacado", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Detergente", qty: 8, unit: "un", note: "Atacado", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Amaciante", qty: 1, unit: "un", note: "", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "\xC1gua Sanit\xE1ria", qty: 1, unit: "un", note: "", area: "Produtos de Limpeza", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          // Mistura
+          { id: uid(), name: "Frango", qty: 1, unit: "kg", note: "", area: "Mistura", price: 0, promoQty: 0, promoPrice: 0, done: false },
+          { id: uid(), name: "Carne", qty: 1, unit: "kg", note: "", area: "Mistura", price: 0, promoQty: 0, promoPrice: 0, done: false }
+        ]
       },
-    });
+      {
+        id: "casa",
+        name: "Casa",
+        icon: "\u{1F3E0}",
+        color: "#10B981",
+        type: "shopping",
+        feature: "installment",
+        budget: 0,
+        areas: ["Laje", "\xC1rea", "Quarto", "Cozinha", "Sala", "Banheiro"],
+        items: []
+      }
+    ],
+    history: [{ "id": "hist_inicial_310526", "listName": "Mercado", "icon": "\u{1F6D2}", "date": "2026-05-31T15:23:00.000Z", "total": 1351.13, "paid": 1355.88, "items": [{ "name": "A\xE7\xFAcar", "qty": "10 pct", "unit": "", "total": 25.5 }, { "name": "Caf\xE9", "qty": "5 pct", "unit": "", "total": 105 }, { "name": "Nescau", "qty": "1 un", "unit": "", "total": 36 }, { "name": "Bolachas", "qty": "1 un", "unit": "", "total": 51 }, { "name": "Manteiga", "qty": "1 un", "unit": "", "total": 31 }, { "name": "Requeij\xE3o", "qty": "2 un", "unit": "", "total": 15 }, { "name": "Iogurte", "qty": "1 un", "unit": "", "total": 0 }, { "name": "Maionese", "qty": "1 un", "unit": "", "total": 16 }, { "name": "Ketchup", "qty": "1 un", "unit": "", "total": 22 }, { "name": "Shampoo", "qty": "1 un", "unit": "", "total": 35 }, { "name": "Shampoo", "qty": "2 un", "unit": "", "total": 0 }, { "name": "Pasta de Dente", "qty": "2 un", "unit": "", "total": 19.8 }, { "name": "Sabonete", "qty": "1 un", "unit": "", "total": 13 }, { "name": "Macarr\xE3o", "qty": "1 pct", "unit": "", "total": 12 }, { "name": "Massa de Tomate", "qty": "6 un", "unit": "", "total": 10.74 }, { "name": "Leite", "qty": "6 un", "unit": "", "total": 32.34 }, { "name": "Sucos", "qty": "1 un", "unit": "", "total": 22 }, { "name": "Refrigerante", "qty": "6 un", "unit": "", "total": 42 }, { "name": "Sab\xE3o em P\xF3", "qty": "1 cx", "unit": "", "total": 38 }, { "name": "Papel Higi\xEAnico", "qty": "1 fardo", "unit": "", "total": 23 }, { "name": "Detergente", "qty": "8 un", "unit": "", "total": 18 }, { "name": "Amaciante", "qty": "1 un", "unit": "", "total": 25 }, { "name": "\xC1gua Sanit\xE1ria", "qty": "1 un", "unit": "", "total": 10.8 }, { "name": "Frango", "qty": "1 kg", "unit": "", "total": 0 }, { "name": "Carne", "qty": "1 kg", "unit": "", "total": 37 }, { "name": "Milhos", "qty": "2 un", "unit": "", "total": 10 }, { "name": "Fub\xE1", "qty": "3 un", "unit": "", "total": 5.7 }, { "name": "Creme de Leite", "qty": "4 un", "unit": "", "total": 7.6 }, { "name": "Molho de Alho", "qty": "1 un", "unit": "", "total": 7 }, { "name": "Tapioca", "qty": "1 un", "unit": "", "total": 12 }, { "name": "Leite Condensado", "qty": "3 un", "unit": "", "total": 16.5 }, { "name": "Azeite", "qty": "1 un", "unit": "", "total": 14 }, { "name": "Massa de Bolo", "qty": "1 un", "unit": "", "total": 0 }, { "name": "Ovos", "qty": "2 un", "unit": "", "total": 59.8 }, { "name": "Gillete", "qty": "2 un", "unit": "", "total": 35.8 }, { "name": "Absorvente", "qty": "1 un", "unit": "", "total": 69 }, { "name": "Sabonete \xCDntimo", "qty": "1 un", "unit": "", "total": 25 }, { "name": "Fralda", "qty": "2 un", "unit": "", "total": 139.8 }, { "name": "Len\xE7o umedecido", "qty": "1 un", "unit": "", "total": 36 }, { "name": "Bombil", "qty": "2 un", "unit": "", "total": 3.4 }, { "name": "Bucha de Lou\xE7a", "qty": "1 un", "unit": "", "total": 4.6 }, { "name": "Saco de Lixo", "qty": "1 un", "unit": "", "total": 15 }, { "name": "P\xE3es", "qty": "1 un", "unit": "", "total": 31 }, { "name": "P\xE3o de HotDog", "qty": "2 un", "unit": "", "total": 0 }, { "name": "Bisnaguinha", "qty": "2 un", "unit": "", "total": 0 }, { "name": "Batata Palha", "qty": "2 un", "unit": "", "total": 0 }, { "name": "Batata Frita", "qty": "1 un", "unit": "", "total": 20.9 }, { "name": "Frigideira", "qty": "1 un", "unit": "", "total": 0 }, { "name": "Queijo Ralado", "qty": "3 un", "unit": "", "total": 9 }, { "name": "Hamb\xFArguer", "qty": "1 un", "unit": "", "total": 0 }, { "name": "Pipoca", "qty": "1 un", "unit": "", "total": 4 }, { "name": "\xC1lcool", "qty": "1 un", "unit": "", "total": 9 }, { "name": "Semorim", "qty": "1 un", "unit": "", "total": 30 }, { "name": "Raid", "qty": "1 un", "unit": "", "total": 16.9 }, { "name": "Chupeta", "qty": "1 un", "unit": "", "total": 10 }, { "name": "Contonete", "qty": "3 un", "unit": "", "total": 3.75 }, { "name": "Desodorante", "qty": "2 un", "unit": "", "total": 39.8 }, { "name": "Creme de Cabelo", "qty": "1 un", "unit": "", "total": 8.9 }, { "name": "Fio Dental", "qty": "1 un", "unit": "", "total": 4.5 }, { "name": "Sab\xE3o l\xEDquido", "qty": "1 un", "unit": "", "total": 25 }, { "name": "Faca", "qty": "1 un", "unit": "", "total": 16 }, { "name": "Macarr\xE3o de Uakissoba", "qty": "1 un", "unit": "", "total": 12 }, { "name": "Sacolas", "qty": "10 un", "unit": "", "total": 9 }] }]
   };
-
-  const finishShopping = (realPaid) => {
-    const bought = list.items.filter((i) => i.done);
-    const total = bought.reduce((a, i) => a + itemTotal(i), 0);
-    const paid = num(realPaid);
-    const entry = {
-      id: uid(),
-      listName: list.name,
-      icon: list.icon,
-      date: new Date().toISOString(),
-      total,
-      paid: paid > 0 ? paid : null,
-      items: bought.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, total: itemTotal(i) })),
+  function itemTotal(it) {
+    const qty = num(it.qty);
+    const price = num(it.price);
+    const promoQty = num(it.promoQty);
+    const promoPrice = num(it.promoPrice);
+    if (promoQty > 0 && promoPrice > 0 && qty >= promoQty) {
+      return qty * promoPrice;
+    }
+    return qty * price;
+  }
+  function App() {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [syncing, setSyncing] = useState(false);
+    const [activeList, setActiveList] = useState(null);
+    const [view, setView] = useState("lists");
+    const [filter, setFilter] = useState("all");
+    const [editItem, setEditItem] = useState(null);
+    const [showNewList, setShowNewList] = useState(false);
+    const [showFinish, setShowFinish] = useState(false);
+    const [showBudget, setShowBudget] = useState(false);
+    const [confirmAsk, setConfirmAsk] = useState(null);
+    const [toast, setToast] = useState("");
+    const lastSync = useRef("");
+    const saveTimer = useRef(null);
+    const modalOpen = useRef(false);
+    modalOpen.current = !!(editItem || showNewList || showFinish || showBudget || confirmAsk);
+    const load = useCallback(async () => {
+      try {
+        const { data: row, error } = await sb.from("casa_data").select("payload").eq("id", "casa_main").maybeSingle();
+        if (error) throw error;
+        if (row && row.payload) {
+          lastSync.current = JSON.stringify(row.payload);
+          setData(row.payload);
+        } else {
+          lastSync.current = JSON.stringify(SEED);
+          setData(SEED);
+          await sb.from("casa_data").upsert({ id: "casa_main", payload: SEED });
+        }
+      } catch (e) {
+        console.error("Erro ao carregar:", e);
+        setData(SEED);
+      }
+      setLoading(false);
+    }, []);
+    useEffect(() => {
+      load();
+    }, [load]);
+    const save = useCallback((next) => {
+      setData(next);
+      const str = JSON.stringify(next);
+      lastSync.current = str;
+      clearTimeout(saveTimer.current);
+      setSyncing(true);
+      saveTimer.current = setTimeout(async () => {
+        try {
+          await sb.from("casa_data").upsert({ id: "casa_main", payload: next });
+        } catch (e) {
+          console.error("Erro ao salvar:", e);
+        }
+        setSyncing(false);
+      }, 600);
+    }, []);
+    useEffect(() => {
+      const tick = async () => {
+        if (document.hidden) return;
+        if (modalOpen.current) return;
+        try {
+          const { data: row } = await sb.from("casa_data").select("payload").eq("id", "casa_main").maybeSingle();
+          if (row && row.payload) {
+            const str = JSON.stringify(row.payload);
+            if (str !== lastSync.current) {
+              lastSync.current = str;
+              setData(row.payload);
+            }
+          }
+        } catch {
+        }
+      };
+      const t = setInterval(tick, 12e3);
+      return () => clearInterval(t);
+    }, []);
+    const flash = (msg) => {
+      setToast(msg);
+      setTimeout(() => setToast(""), 2200);
     };
-    const next = {
-      ...data,
-      history: [entry, ...data.history],
-      lists: data.lists.map((l) =>
-        l.id === activeList
-          ? { ...l, items: l.items.map((i) => ({ ...i, done: false, price: 0, promoQty: 0, promoPrice: 0, parcels: 0 })) }
-          : l
-      ),
+    if (loading || !data) {
+      return /* @__PURE__ */ React.createElement("div", { style: { ...S.page, display: "flex", alignItems: "center", justifyContent: "center", color: "#94A3B8" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 40, marginBottom: 8 } }, "\u{1F3E0}"), "Carregando..."));
+    }
+    const list = data.lists.find((l) => l.id === activeList);
+    const updateList = (listId, fn) => {
+      const next = { ...data, lists: data.lists.map((l) => l.id === listId ? fn(l) : l) };
+      save(next);
     };
-    save(next);
-    setShowFinish(false);
-    flash("Compra salva no histórico! 🎉");
-    setView("history");
+    const toggleItem = (id) => updateList(activeList, (l) => ({ ...l, items: l.items.map((i) => i.id === id ? { ...i, done: !i.done } : i) }));
+    const saveItem = (item) => {
+      if (item._new) {
+        const { _new, ...clean } = item;
+        updateList(activeList, (l) => ({ ...l, items: [...l.items, { ...clean, id: uid() }] }));
+      } else {
+        updateList(activeList, (l) => ({ ...l, items: l.items.map((i) => i.id === item.id ? item : i) }));
+      }
+      setEditItem(null);
+    };
+    const deleteItem = (id) => {
+      updateList(activeList, (l) => ({ ...l, items: l.items.filter((i) => i.id !== id) }));
+      setEditItem(null);
+    };
+    const addList = (name, icon, color, areas = []) => {
+      const nl = { id: uid(), name, icon, color, type: "shopping", feature: "promo", budget: 0, areas, items: [] };
+      save({ ...data, lists: [...data.lists, nl] });
+      setShowNewList(false);
+      setActiveList(nl.id);
+      setView("list");
+    };
+    const deleteList = (id) => {
+      save({ ...data, lists: data.lists.filter((l) => l.id !== id) });
+      setView("lists");
+    };
+    const setBudget = (value) => {
+      updateList(activeList, (l) => ({ ...l, budget: num(value) }));
+      setShowBudget(false);
+    };
+    const resetModel = () => {
+      setConfirmAsk({
+        title: "Atualizar estrutura?",
+        message: "Isto recarrega a estrutura padr\xE3o (Mercado e Casa) e substitui as listas atuais. Seu hist\xF3rico \xE9 mantido.",
+        danger: false,
+        onYes: () => {
+          save({ ...SEED, history: data.history });
+          setView("lists");
+          flash("Estrutura atualizada!");
+        }
+      });
+    };
+    const finishShopping = (realPaid) => {
+      const bought = list.items.filter((i) => i.done);
+      const total = bought.reduce((a, i) => a + itemTotal(i), 0);
+      const paid = num(realPaid);
+      const entry = {
+        id: uid(),
+        listName: list.name,
+        icon: list.icon,
+        date: (/* @__PURE__ */ new Date()).toISOString(),
+        total,
+        paid: paid > 0 ? paid : null,
+        items: bought.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, total: itemTotal(i) }))
+      };
+      const next = {
+        ...data,
+        history: [entry, ...data.history],
+        lists: data.lists.map(
+          (l) => l.id === activeList ? { ...l, items: l.items.map((i) => ({ ...i, done: false, price: 0, promoQty: 0, promoPrice: 0, parcels: 0 })) } : l
+        )
+      };
+      save(next);
+      setShowFinish(false);
+      flash("Compra salva no hist\xF3rico! \u{1F389}");
+      setView("history");
+    };
+    const listTotal = list ? list.items.filter((i) => i.done).reduce((a, i) => a + itemTotal(i), 0) : 0;
+    const listFullTotal = list ? list.items.reduce((a, i) => a + itemTotal(i), 0) : 0;
+    return /* @__PURE__ */ React.createElement("div", { style: S.page }, /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 8, right: 10, zIndex: 99, fontSize: 11, color: syncing ? "#10B981" : "#CBD5E1", display: "flex", alignItems: "center", gap: 4 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 7, height: 7, borderRadius: 99, background: syncing ? "#10B981" : "#CBD5E1", display: "inline-block" } }), syncing ? "sincronizando" : "sincronizado"), view === "lists" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Header, { title: "\u{1F3E0} Nossa Casa", subtitle: "Compras & tarefas \u2014 voc\xEA e sua esposa" }), /* @__PURE__ */ React.createElement("div", { style: S.container }, /* @__PURE__ */ React.createElement(
+      SegBtns,
+      {
+        active: "all",
+        onChange: () => {
+        },
+        extra: /* @__PURE__ */ React.createElement("button", { onClick: () => setView("history"), style: { ...S.ghostBtn } }, "\u{1F4DC} Hist\xF3rico (", data.history.length, ")")
+      }
+    ), data.lists.map((l) => {
+      const total = l.items.length;
+      const done = l.items.filter((i) => i.done).length;
+      const val = l.items.reduce((a, i) => a + itemTotal(i), 0);
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: l.id,
+          onClick: () => {
+            setActiveList(l.id);
+            setView("list");
+            setFilter("all");
+          },
+          style: S.listCard
+        },
+        /* @__PURE__ */ React.createElement("div", { style: { ...S.listIcon, background: BGS[l.color], color: l.color } }, l.icon),
+        /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 16, color: "#0F172A" } }, l.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#94A3B8", marginTop: 2 } }, done, "/", total, " itens", val > 0 ? ` \xB7 ${brl(val)}` : "")),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 20, color: "#CBD5E1" } }, "\u203A")
+      );
+    }), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowNewList(true), style: S.addListBtn }, "+ Nova lista / c\xF4modo"), /* @__PURE__ */ React.createElement("button", { onClick: resetModel, style: { width: "100%", padding: "10px", borderRadius: 11, border: "none", background: "transparent", color: "#94A3B8", fontWeight: 600, fontSize: 12.5, cursor: "pointer", marginTop: 4 } }, "\u21BB Atualizar estrutura para o modelo padr\xE3o"))), view === "list" && list && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      Header,
+      {
+        title: `${list.icon} ${list.name}`,
+        subtitle: list.type === "room" ? "Compras + tarefas" : "Lista de compras",
+        onBack: () => setView("lists"),
+        color: list.color
+      }
+    ), /* @__PURE__ */ React.createElement("div", { style: S.container }, (() => {
+      const budget = num(list.budget);
+      const remaining = budget - listTotal;
+      const over = remaining < 0;
+      const pct = budget > 0 ? Math.min(listTotal / budget * 100, 100) : 0;
+      return /* @__PURE__ */ React.createElement("div", { style: { ...S.totalBar, borderColor: list.color, display: "block" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#64748B" } }, "J\xE1 marcado"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 26, fontWeight: 800, color: list.color } }, brl(listTotal))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#64748B" } }, "Or\xE7amento"), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setShowBudget(true),
+          style: { border: "none", background: "none", fontSize: 16, fontWeight: 700, color: budget > 0 ? "#0F172A" : "#94A3B8", cursor: "pointer", padding: 0, textDecoration: "underline", textDecorationStyle: "dotted" }
+        },
+        budget > 0 ? brl(budget) : "definir"
+      ))), budget > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { background: "#E2E8F0", borderRadius: 99, height: 8, marginTop: 12, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: 8, borderRadius: 99, width: `${pct}%`, background: over ? "#DC2626" : list.color, transition: "width 0.3s" } })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, fontSize: 14, fontWeight: 700, color: over ? "#DC2626" : "#16A34A", textAlign: "center" } }, over ? `Passou ${brl(Math.abs(remaining))} do or\xE7amento` : `Ainda pode gastar ${brl(remaining)}`)));
+    })(), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, margin: "4px 0 12px" } }, [["all", "Todos"], ["pending", "Pendentes"], ["done", "Marcados"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: k,
+        onClick: () => setFilter(k),
+        style: { ...S.filterBtn, ...filter === k ? { background: list.color, color: "#fff", borderColor: list.color } : {} }
+      },
+      lbl
+    ))), (() => {
+      const visible = list.items.filter((i) => filter === "all" ? true : filter === "done" ? i.done : !i.done);
+      const defined = list.areas || [];
+      const extra = [...new Set(visible.map((i) => i.area).filter((a) => a && !defined.includes(a)))];
+      const order = [...defined, ...extra, "__none__"];
+      return order.map((area) => {
+        const group = visible.filter((i) => (i.area || "__none__") === area);
+        if (group.length === 0) return null;
+        const label = area === "__none__" ? "Outros" : area;
+        const groupDone = group.filter((i) => i.done).length;
+        return /* @__PURE__ */ React.createElement("div", { key: area, style: { marginBottom: 18 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", margin: "2px 4px 8px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 800, color: list.color, textTransform: "uppercase", letterSpacing: 0.5 } }, label), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, fontWeight: 700, color: "#fff", background: list.color, borderRadius: 99, padding: "2px 9px" } }, groupDone, "/", group.length)), group.map((it) => {
+          const t = itemTotal(it);
+          const isTask = it.kind === "task";
+          return /* @__PURE__ */ React.createElement("div", { key: it.id, style: { ...S.item, background: it.done ? "#F8FAFC" : "#fff" } }, /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              onClick: () => toggleItem(it.id),
+              style: { ...S.check, borderColor: it.done ? list.color : "#CBD5E1", background: it.done ? list.color : "#fff" }
+            },
+            it.done && /* @__PURE__ */ React.createElement("span", { style: { color: "#fff", fontSize: 13, fontWeight: 800 } }, "\u2713")
+          ), /* @__PURE__ */ React.createElement("div", { onClick: () => setEditItem({ ...it }), style: { flex: 1, minWidth: 0, marginLeft: 12, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 600, color: it.done ? "#94A3B8" : "#0F172A", textDecoration: it.done ? "line-through" : "none" } }, isTask && "\u{1F527} ", it.name), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#94A3B8", marginTop: 1 } }, !isTask && it.qty ? `${it.qty} ${it.unit}` : "", it.promoQty > 0 && it.promoPrice > 0 ? ` \xB7 \u{1F3F7}\uFE0F ${it.promoQty}+ a ${brl(it.promoPrice)}` : "", num(it.parcels) > 0 && num(it.price) > 0 ? ` \xB7 \u{1F4B3} ${Math.round(num(it.parcels))}x de ${brl(num(it.price) * num(it.qty) / num(it.parcels))}` : "", it.note ? `${!isTask && it.qty || it.promoQty || num(it.parcels) > 0 ? " \xB7 " : ""}${it.note}` : "")), !isTask && t > 0 && /* @__PURE__ */ React.createElement("div", { style: { ...S.priceTag, background: BGS[list.color], color: list.color } }, brl(t)));
+        }));
+      });
+    })(), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setEditItem({ _new: true, name: "", qty: 1, unit: "un", note: "", area: list.areas && list.areas[0] || "", price: 0, promoQty: 0, promoPrice: 0, parcels: 0, done: false, kind: "buy" }),
+        style: { ...S.addListBtn, borderColor: list.color, color: list.color }
+      },
+      "+ Adicionar item"
+    ), list.items.some((i) => i.done) && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowFinish(true), style: { ...S.finishBtn, background: list.color } }, "\u2705 Finalizar compra (", brl(listTotal), ")"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setConfirmAsk({
+          title: "Excluir esta lista?",
+          message: `A lista "${list.name}" e todos os seus itens ser\xE3o removidos. Esta a\xE7\xE3o n\xE3o pode ser desfeita.`,
+          danger: true,
+          onYes: () => deleteList(list.id)
+        }),
+        style: S.deleteListBtn
+      },
+      "Excluir esta lista"
+    ))), view === "history" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Header, { title: "\u{1F4DC} Hist\xF3rico", subtitle: "Compras finalizadas", onBack: () => setView("lists") }), /* @__PURE__ */ React.createElement("div", { style: S.container }, data.history.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "60px 0", color: "#94A3B8" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 44, marginBottom: 10 } }, "\u{1F5D2}\uFE0F"), "Nenhuma compra finalizada ainda.") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { ...S.totalBar, borderColor: "#10B981", marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#64748B" } }, "Total gasto (hist\xF3rico)"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 24, fontWeight: 800, color: "#10B981" } }, brl(data.history.reduce((a, h) => a + (h.paid != null ? h.paid : h.total), 0)))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#94A3B8" } }, data.history.length, " compras")), data.history.map((h) => /* @__PURE__ */ React.createElement("div", { key: h.id, style: S.histCard }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, h.icon, " ", h.listName), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: "#10B981" } }, brl(h.paid != null ? h.paid : h.total)), h.paid != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#94A3B8" } }, "estimado ", brl(h.total)))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#94A3B8", marginBottom: 8 } }, new Date(h.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#475569", lineHeight: 1.7 } }, h.items.map((i, x) => /* @__PURE__ */ React.createElement("div", { key: x, style: { display: "flex", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", null, i.name, " ", i.qty ? `(${i.qty} ${i.unit})` : ""), /* @__PURE__ */ React.createElement("span", { style: { color: "#94A3B8" } }, i.total > 0 ? brl(i.total) : "\u2014"))))))))), editItem && /* @__PURE__ */ React.createElement(
+      ItemModal,
+      {
+        item: editItem,
+        color: list ? list.color : "#3B82F6",
+        isRoom: list && list.type === "room",
+        feature: list && list.feature || "promo",
+        areas: list && list.areas || [],
+        onClose: () => setEditItem(null),
+        onSave: saveItem,
+        onDelete: !editItem._new ? () => deleteItem(editItem.id) : null
+      }
+    ), showNewList && /* @__PURE__ */ React.createElement(NewListModal, { onClose: () => setShowNewList(false), onCreate: addList }), showBudget && list && /* @__PURE__ */ React.createElement(BudgetModal, { current: list.budget, color: list.color, onClose: () => setShowBudget(false), onSave: setBudget }), showFinish && list && /* @__PURE__ */ React.createElement(
+      FinishModal,
+      {
+        count: list.items.filter((i) => i.done).length,
+        estimated: listTotal,
+        onClose: () => setShowFinish(false),
+        onConfirm: finishShopping
+      }
+    ), confirmAsk && /* @__PURE__ */ React.createElement(
+      ConfirmModal,
+      {
+        info: confirmAsk,
+        onClose: () => setConfirmAsk(null),
+        onYes: () => {
+          confirmAsk.onYes();
+          setConfirmAsk(null);
+        }
+      }
+    ), toast && /* @__PURE__ */ React.createElement("div", { style: S.toast }, toast));
+  }
+  function Header({ title, subtitle, onBack, color }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { ...S.header, background: color ? `linear-gradient(135deg, ${color} 0%, #0F172A 160%)` : "linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%)" } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 480, margin: "0 auto" } }, onBack && /* @__PURE__ */ React.createElement("button", { onClick: onBack, style: S.backBtn }, "\u2039 Voltar"), /* @__PURE__ */ React.createElement("h1", { style: { margin: "8px 0 2px", fontSize: 24, fontWeight: 800, letterSpacing: -0.5 } }, title), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, opacity: 0.8 } }, subtitle)));
+  }
+  function SegBtns({ extra }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 8 } }, extra);
+  }
+  function ItemModal({ item, color, isRoom, feature, areas, onClose, onSave, onDelete }) {
+    const [f, setF] = useState(item);
+    const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+    const isTask = f.kind === "task";
+    const preview = itemTotal(f);
+    return /* @__PURE__ */ React.createElement(Modal, { onClose }, /* @__PURE__ */ React.createElement("h3", { style: { margin: "0 0 14px", fontSize: 18 } }, item._new ? "Novo item" : "Editar item"), areas && areas.length > 0 && /* @__PURE__ */ React.createElement(Field, { label: isRoom ? "C\xF4modo" : "\xC1rea" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } }, areas.map((a) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: a,
+        onClick: () => set("area", a),
+        style: {
+          padding: "7px 12px",
+          borderRadius: 99,
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: "pointer",
+          border: f.area === a ? `2px solid ${color}` : "1px solid #E2E8F0",
+          background: f.area === a ? color : "#fff",
+          color: f.area === a ? "#fff" : "#475569"
+        }
+      },
+      a
+    )))), isRoom && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [["buy", "\u{1F6D2} Compra"], ["task", "\u{1F527} Tarefa"]].map(([k, lbl]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: k,
+        onClick: () => set("kind", k),
+        style: { ...S.filterBtn, flex: 1, ...f.kind === k ? { background: color, color: "#fff", borderColor: color } : {} }
+      },
+      lbl
+    ))), /* @__PURE__ */ React.createElement(Field, { label: "Nome" }, /* @__PURE__ */ React.createElement("input", { style: S.input, value: f.name, onChange: (e) => set("name", e.target.value), placeholder: "Ex: Arroz", autoFocus: true })), !isTask && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "Quantidade", flex: true }, /* @__PURE__ */ React.createElement("input", { style: S.input, type: "number", inputMode: "decimal", value: f.qty, onChange: (e) => set("qty", e.target.value) })), /* @__PURE__ */ React.createElement(Field, { label: "Unidade", flex: true }, /* @__PURE__ */ React.createElement("input", { style: S.input, value: f.unit, onChange: (e) => set("unit", e.target.value), placeholder: "un, kg, pct" }))), /* @__PURE__ */ React.createElement(Field, { label: "Pre\xE7o unit\xE1rio (R$)" }, /* @__PURE__ */ React.createElement("input", { style: S.input, type: "number", inputMode: "decimal", value: f.price, onChange: (e) => set("price", e.target.value), placeholder: "0,00" })), feature === "promo" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { background: "#FEF3C7", borderRadius: 12, padding: 12, margin: "4px 0 12px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 8 } }, "\u{1F3F7}\uFE0F Pre\xE7o promocional por quantidade (opcional)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement(Field, { label: "A partir de (qtd)", flex: true, small: true }, /* @__PURE__ */ React.createElement("input", { style: S.input, type: "number", inputMode: "decimal", value: f.promoQty, onChange: (e) => set("promoQty", e.target.value), placeholder: "10" })), /* @__PURE__ */ React.createElement("span", { style: { paddingBottom: 12, color: "#92400E" } }, "\u2192"), /* @__PURE__ */ React.createElement(Field, { label: "Pre\xE7o da unidade (R$)", flex: true, small: true }, /* @__PURE__ */ React.createElement("input", { style: S.input, type: "number", inputMode: "decimal", value: f.promoPrice, onChange: (e) => set("promoPrice", e.target.value), placeholder: "3,29" }))), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: "#92400E", marginTop: 6, opacity: 0.8 } }, "Ex: a partir de 10 un, cada uma sai por 3,29 (abaixo disso, usa o pre\xE7o unit\xE1rio acima).")), num(f.promoQty) > 0 && num(f.promoPrice) > 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontSize: 12.5, fontWeight: 600, color: num(f.qty) >= num(f.promoQty) ? "#16A34A" : "#94A3B8", marginBottom: 4 } }, num(f.qty) >= num(f.promoQty) ? `\u2705 Promo\xE7\xE3o aplicada (${f.qty} \u2265 ${f.promoQty} un)` : `Faltam ${num(f.promoQty) - num(f.qty)} un para o pre\xE7o promocional`)), feature === "installment" && /* @__PURE__ */ React.createElement("div", { style: { background: "#EDE9FE", borderRadius: 12, padding: 12, margin: "4px 0 12px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: "#5B21B6" } }, "\u{1F4B3} Parcelado?"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => set("parcels", num(f.parcels) > 0 ? 0 : 2),
+        style: {
+          border: "none",
+          borderRadius: 99,
+          padding: "5px 14px",
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: "pointer",
+          background: num(f.parcels) > 0 ? "#7C3AED" : "#fff",
+          color: num(f.parcels) > 0 ? "#fff" : "#7C3AED",
+          boxShadow: "0 0 0 1px #DDD6FE"
+        }
+      },
+      num(f.parcels) > 0 ? "Sim" : "N\xE3o / \xE0 vista"
+    )), num(f.parcels) > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: "Em quantas vezes?", small: true }, /* @__PURE__ */ React.createElement("input", { style: S.input, type: "number", inputMode: "numeric", value: f.parcels, onChange: (e) => set("parcels", e.target.value), placeholder: "12" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: "#5B21B6", marginTop: 4, textAlign: "center", fontWeight: 600 } }, num(f.parcels) >= 1 && num(f.price) > 0 ? `${brl(num(f.price) * num(f.qty))} em ${Math.round(num(f.parcels))}x de ${brl(num(f.price) * num(f.qty) / num(f.parcels))}` : "Preencha o pre\xE7o acima para ver a parcela"))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "8px 0", fontSize: 15, fontWeight: 700, color } }, "Subtotal: ", brl(preview))), /* @__PURE__ */ React.createElement(Field, { label: "Observa\xE7\xE3o" }, /* @__PURE__ */ React.createElement("input", { style: S.input, value: f.note, onChange: (e) => set("note", e.target.value), placeholder: "Atacado, marca, etc." })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 8 } }, onDelete && /* @__PURE__ */ React.createElement("button", { onClick: onDelete, style: S.btnDanger }, "Excluir"), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: S.btnSecondary }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { onClick: () => f.name.trim() && onSave(f), style: { ...S.btnPrimary, background: color } }, "Salvar")));
+  }
+  function ConfirmModal({ info, onClose, onYes }) {
+    return /* @__PURE__ */ React.createElement(Modal, { onClose }, /* @__PURE__ */ React.createElement("h3", { style: { margin: "0 0 6px", fontSize: 18 } }, info.title), /* @__PURE__ */ React.createElement("p", { style: { color: "#64748B", fontSize: 14, margin: "0 0 18px", lineHeight: 1.5 } }, info.message), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: S.btnSecondary }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { onClick: onYes, style: { ...S.btnPrimary, background: info.danger ? "#DC2626" : "#10B981" } }, info.danger ? "Excluir" : "Confirmar")));
+  }
+  function BudgetModal({ current, color, onClose, onSave }) {
+    const [v, setV] = useState(current > 0 ? String(current) : "");
+    return /* @__PURE__ */ React.createElement(Modal, { onClose }, /* @__PURE__ */ React.createElement("h3", { style: { margin: "0 0 6px", fontSize: 18 } }, "Or\xE7amento da compra"), /* @__PURE__ */ React.createElement("p", { style: { color: "#64748B", fontSize: 14, margin: "0 0 14px" } }, "Quanto voc\xEA quer gastar nesta lista? O app vai mostrar o saldo conforme voc\xEA marca os itens."), /* @__PURE__ */ React.createElement(Field, { label: "Valor do or\xE7amento (R$)" }, /* @__PURE__ */ React.createElement("input", { style: S.input, type: "number", inputMode: "decimal", value: v, onChange: (e) => setV(e.target.value), placeholder: "Ex: 1000,00", autoFocus: true })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 6 } }, current > 0 && /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(0), style: S.btnDanger }, "Remover"), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: S.btnSecondary }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(v), style: { ...S.btnPrimary, background: color } }, "Salvar")));
+  }
+  function FinishModal({ count, estimated, onClose, onConfirm }) {
+    const [paid, setPaid] = useState("");
+    const diff = num(paid) - estimated;
+    return /* @__PURE__ */ React.createElement(Modal, { onClose }, /* @__PURE__ */ React.createElement("h3", { style: { margin: "0 0 6px", fontSize: 18 } }, "Finalizar compra?"), /* @__PURE__ */ React.createElement("p", { style: { color: "#64748B", fontSize: 14, margin: "0 0 14px" } }, count, " itens marcados ser\xE3o salvos no hist\xF3rico. A lista ser\xE1 reiniciada pra pr\xF3xima vez."), /* @__PURE__ */ React.createElement("div", { style: { background: "#F1F5F9", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#64748B", fontSize: 14 } }, "Total estimado"), /* @__PURE__ */ React.createElement("strong", { style: { color: "#0F172A" } }, brl(estimated))), /* @__PURE__ */ React.createElement(Field, { label: "Quanto voc\xEA pagou de verdade? (opcional)" }, /* @__PURE__ */ React.createElement("input", { style: S.input, type: "number", inputMode: "decimal", value: paid, onChange: (e) => setPaid(e.target.value), placeholder: "Ex: 950,00", autoFocus: true })), num(paid) > 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", fontSize: 13, fontWeight: 600, marginBottom: 10, color: diff <= 0 ? "#16A34A" : "#DC2626" } }, diff === 0 ? "Bateu certinho com o estimado" : diff < 0 ? `Economizou ${brl(Math.abs(diff))} \u{1F389}` : `Passou ${brl(diff)} do estimado`), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: S.btnSecondary }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { onClick: () => onConfirm(paid), style: { ...S.btnPrimary, background: "#10B981" } }, "Confirmar")));
+  }
+  function NewListModal({ onClose, onCreate }) {
+    const [name, setName] = useState("");
+    const [icon, setIcon] = useState("\u{1F4E6}");
+    const [color, setColor] = useState("#3B82F6");
+    const [areasText, setAreasText] = useState("");
+    return /* @__PURE__ */ React.createElement(Modal, { onClose }, /* @__PURE__ */ React.createElement("h3", { style: { margin: "0 0 14px", fontSize: 18 } }, "Nova lista / c\xF4modo"), /* @__PURE__ */ React.createElement(Field, { label: "Nome" }, /* @__PURE__ */ React.createElement("input", { style: S.input, value: name, onChange: (e) => setName(e.target.value), placeholder: "Ex: Sala, Quarto, Farm\xE1cia", autoFocus: true })), /* @__PURE__ */ React.createElement(Field, { label: "\xC1reas / divis\xF5es (separe por v\xEDrgula \u2014 opcional)" }, /* @__PURE__ */ React.createElement("input", { style: S.input, value: areasText, onChange: (e) => setAreasText(e.target.value), placeholder: "Ex: Arm\xE1rio, Geladeira, Limpeza" })), /* @__PURE__ */ React.createElement(Field, { label: "\xCDcone" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } }, ICONS.map((ic) => /* @__PURE__ */ React.createElement("button", { key: ic, onClick: () => setIcon(ic), style: { fontSize: 20, width: 40, height: 40, borderRadius: 10, border: icon === ic ? "2px solid #2563EB" : "1px solid #E2E8F0", background: icon === ic ? "#DBEAFE" : "#fff", cursor: "pointer" } }, ic)))), /* @__PURE__ */ React.createElement(Field, { label: "Cor" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, COLORS.map((c) => /* @__PURE__ */ React.createElement("button", { key: c, onClick: () => setColor(c), style: { width: 34, height: 34, borderRadius: 99, background: c, border: color === c ? "3px solid #0F172A" : "2px solid #fff", boxShadow: "0 0 0 1px #E2E8F0", cursor: "pointer" } })))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 14 } }, /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: S.btnSecondary }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { onClick: () => name.trim() && onCreate(name, icon, color, areasText.split(",").map((a) => a.trim()).filter(Boolean)), style: { ...S.btnPrimary, background: color } }, "Criar")));
+  }
+  function Modal({ children, onClose }) {
+    return /* @__PURE__ */ React.createElement("div", { onClick: onClose, style: S.overlay }, /* @__PURE__ */ React.createElement("div", { onClick: (e) => e.stopPropagation(), style: S.modal }, children));
+  }
+  function Field({ label, children, flex, small }) {
+    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12, flex: flex ? 1 : void 0 } }, /* @__PURE__ */ React.createElement("label", { style: { display: "block", fontSize: small ? 11 : 12.5, fontWeight: 600, color: "#64748B", marginBottom: 5 } }, label), children);
+  }
+  var S = {
+    page: { fontFamily: "'Segoe UI', -apple-system, sans-serif", minHeight: "100vh", background: "#F1F5F9", paddingBottom: 40 },
+    container: { maxWidth: 480, margin: "16px auto 0", padding: "0 14px" },
+    header: { padding: "24px 18px 22px", color: "#fff" },
+    backBtn: { background: "rgba(255,255,255,0.18)", border: "none", color: "#fff", padding: "5px 12px", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 },
+    listCard: { background: "#fff", borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.07)", cursor: "pointer" },
+    listIcon: { width: 46, height: 46, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 },
+    addListBtn: { width: "100%", padding: "13px", borderRadius: 13, border: "2px dashed #CBD5E1", background: "transparent", color: "#64748B", fontWeight: 600, fontSize: 14.5, cursor: "pointer", marginTop: 6 },
+    ghostBtn: { background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, padding: "7px 13px", fontSize: 13, fontWeight: 600, color: "#475569", cursor: "pointer" },
+    totalBar: { background: "#fff", borderRadius: 14, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderLeft: "5px solid", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" },
+    filterBtn: { flex: 1, padding: "9px 0", borderRadius: 10, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 13.5, fontWeight: 600, cursor: "pointer" },
+    item: { display: "flex", alignItems: "center", padding: "13px 14px", borderRadius: 13, marginBottom: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" },
+    check: { width: 24, height: 24, borderRadius: 7, border: "2px solid", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" },
+    priceTag: { borderRadius: 9, padding: "5px 11px", fontSize: 13.5, fontWeight: 800, flexShrink: 0, marginLeft: 8 },
+    finishBtn: { width: "100%", padding: "15px", borderRadius: 13, border: "none", color: "#fff", fontWeight: 800, fontSize: 15.5, cursor: "pointer", marginTop: 14, boxShadow: "0 4px 14px rgba(16,185,129,0.3)" },
+    deleteListBtn: { width: "100%", padding: "11px", borderRadius: 11, border: "none", background: "transparent", color: "#EF4444", fontWeight: 600, fontSize: 13, cursor: "pointer", marginTop: 10 },
+    histCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" },
+    overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100, padding: 0 },
+    modal: { background: "#fff", borderRadius: "20px 20px 0 0", padding: "22px 18px calc(22px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 -8px 30px rgba(0,0,0,0.2)" },
+    input: { width: "100%", padding: "11px 13px", borderRadius: 10, border: "1.5px solid #E2E8F0", fontSize: 16, boxSizing: "border-box", outline: "none", background: "#F8FAFC" },
+    btnPrimary: { flex: 2, padding: "13px", borderRadius: 11, border: "none", color: "#fff", fontWeight: 700, fontSize: 15, cursor: "pointer" },
+    btnSecondary: { flex: 1, padding: "13px", borderRadius: 11, border: "1.5px solid #E2E8F0", background: "#fff", color: "#475569", fontWeight: 600, fontSize: 15, cursor: "pointer" },
+    btnDanger: { flex: 1, padding: "13px", borderRadius: 11, border: "none", background: "#FEE2E2", color: "#EF4444", fontWeight: 700, fontSize: 14, cursor: "pointer" },
+    toast: { position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0F172A", color: "#fff", padding: "12px 20px", borderRadius: 12, fontSize: 14, fontWeight: 600, zIndex: 200, boxShadow: "0 6px 20px rgba(0,0,0,0.3)" }
   };
+  if (!sb) {
+    document.getElementById("erro").style.display = "block";
+    document.getElementById("erro").innerHTML = "<b>Falta configurar o Supabase.</b><br><br>Abra o arquivo index.html e cole a Project URL e a anon key no bloco de configura\xE7\xE3o, conforme o guia. Depois publique de novo.";
+  } else {
+    ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
+  }
+})();
+} // fim de iniciarApp
 
-  /* ================= TOTAIS ================= */
-  const listTotal = list ? list.items.filter((i) => i.done).reduce((a, i) => a + itemTotal(i), 0) : 0;
-  const listFullTotal = list ? list.items.reduce((a, i) => a + itemTotal(i), 0) : 0;
-
-  /* ================= RENDER ================= */
-  return (
-    <div style={S.page}>
-      {/* sync dot */}
-      <div style={{ position: "fixed", top: 8, right: 10, zIndex: 99, fontSize: 11, color: syncing ? "#10B981" : "#CBD5E1", display: "flex", alignItems: "center", gap: 4 }}>
-        <span style={{ width: 7, height: 7, borderRadius: 99, background: syncing ? "#10B981" : "#CBD5E1", display: "inline-block" }} />
-        {syncing ? "sincronizando" : "sincronizado"}
-      </div>
-
-      {/* ============ HOME: lista de listas ============ */}
-      {view === "lists" && (
-        <>
-          <Header title="🏠 Nossa Casa" subtitle="Compras & tarefas — você e sua esposa" />
-          <div style={S.container}>
-            <SegBtns
-              active={"all"}
-              onChange={() => {}}
-              extra={
-                <button onClick={() => setView("history")} style={{ ...S.ghostBtn }}>
-                  📜 Histórico ({data.history.length})
-                </button>
-              }
-            />
-            {data.lists.map((l) => {
-              const total = l.items.length;
-              const done = l.items.filter((i) => i.done).length;
-              const val = l.items.reduce((a, i) => a + itemTotal(i), 0);
-              return (
-                <div
-                  key={l.id}
-                  onClick={() => { setActiveList(l.id); setView("list"); setFilter("all"); }}
-                  style={S.listCard}
-                >
-                  <div style={{ ...S.listIcon, background: BGS[l.color], color: l.color }}>{l.icon}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 16, color: "#0F172A" }}>{l.name}</div>
-                    <div style={{ fontSize: 12.5, color: "#94A3B8", marginTop: 2 }}>
-                      {done}/{total} itens{val > 0 ? ` · ${brl(val)}` : ""}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 20, color: "#CBD5E1" }}>›</div>
-                </div>
-              );
-            })}
-            <button onClick={() => setShowNewList(true)} style={S.addListBtn}>+ Nova lista / cômodo</button>
-            <button onClick={resetModel} style={{ width: "100%", padding: "10px", borderRadius: 11, border: "none", background: "transparent", color: "#94A3B8", fontWeight: 600, fontSize: 12.5, cursor: "pointer", marginTop: 4 }}>
-              ↻ Atualizar estrutura para o modelo padrão
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* ============ DETALHE DE UMA LISTA ============ */}
-      {view === "list" && list && (
-        <>
-          <Header
-            title={`${list.icon} ${list.name}`}
-            subtitle={list.type === "room" ? "Compras + tarefas" : "Lista de compras"}
-            onBack={() => setView("lists")}
-            color={list.color}
-          />
-          <div style={S.container}>
-            {/* orçamento ao vivo */}
-            {(() => {
-              const budget = num(list.budget);
-              const remaining = budget - listTotal;
-              const over = remaining < 0;
-              const pct = budget > 0 ? Math.min((listTotal / budget) * 100, 100) : 0;
-              return (
-                <div style={{ ...S.totalBar, borderColor: list.color, display: "block" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div>
-                      <div style={{ fontSize: 12, color: "#64748B" }}>Já marcado</div>
-                      <div style={{ fontSize: 26, fontWeight: 800, color: list.color }}>{brl(listTotal)}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 12, color: "#64748B" }}>Orçamento</div>
-                      <button onClick={() => setShowBudget(true)}
-                        style={{ border: "none", background: "none", fontSize: 16, fontWeight: 700, color: budget > 0 ? "#0F172A" : "#94A3B8", cursor: "pointer", padding: 0, textDecoration: "underline", textDecorationStyle: "dotted" }}>
-                        {budget > 0 ? brl(budget) : "definir"}
-                      </button>
-                    </div>
-                  </div>
-                  {budget > 0 && (
-                    <>
-                      <div style={{ background: "#E2E8F0", borderRadius: 99, height: 8, marginTop: 12, overflow: "hidden" }}>
-                        <div style={{ height: 8, borderRadius: 99, width: `${pct}%`, background: over ? "#DC2626" : list.color, transition: "width 0.3s" }} />
-                      </div>
-                      <div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: over ? "#DC2626" : "#16A34A", textAlign: "center" }}>
-                        {over ? `Passou ${brl(Math.abs(remaining))} do orçamento` : `Ainda pode gastar ${brl(remaining)}`}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* filtros */}
-            <div style={{ display: "flex", gap: 6, margin: "4px 0 12px" }}>
-              {[["all", "Todos"], ["pending", "Pendentes"], ["done", "Marcados"]].map(([k, lbl]) => (
-                <button key={k} onClick={() => setFilter(k)}
-                  style={{ ...S.filterBtn, ...(filter === k ? { background: list.color, color: "#fff", borderColor: list.color } : {}) }}>
-                  {lbl}
-                </button>
-              ))}
-            </div>
-
-            {/* itens agrupados por área */}
-            {(() => {
-              const visible = list.items.filter((i) => filter === "all" ? true : filter === "done" ? i.done : !i.done);
-              // ordem das áreas: as definidas na lista + qualquer área extra que apareça
-              const defined = list.areas || [];
-              const extra = [...new Set(visible.map((i) => i.area).filter((a) => a && !defined.includes(a)))];
-              const order = [...defined, ...extra, "__none__"];
-              return order.map((area) => {
-                const group = visible.filter((i) => (i.area || "__none__") === area);
-                if (group.length === 0) return null;
-                const label = area === "__none__" ? "Outros" : area;
-                const groupDone = group.filter((i) => i.done).length;
-                return (
-                  <div key={area} style={{ marginBottom: 18 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "2px 4px 8px" }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: list.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
-                      <span style={{ fontSize: 11.5, fontWeight: 700, color: "#fff", background: list.color, borderRadius: 99, padding: "2px 9px" }}>{groupDone}/{group.length}</span>
-                    </div>
-                    {group.map((it) => {
-                      const t = itemTotal(it);
-                      const isTask = it.kind === "task";
-                      return (
-                        <div key={it.id} style={{ ...S.item, background: it.done ? "#F8FAFC" : "#fff" }}>
-                          <div onClick={() => toggleItem(it.id)}
-                            style={{ ...S.check, borderColor: it.done ? list.color : "#CBD5E1", background: it.done ? list.color : "#fff" }}>
-                            {it.done && <span style={{ color: "#fff", fontSize: 13, fontWeight: 800 }}>✓</span>}
-                          </div>
-                          <div onClick={() => setEditItem({ ...it })} style={{ flex: 1, minWidth: 0, marginLeft: 12, cursor: "pointer" }}>
-                            <div style={{ fontSize: 15, fontWeight: 600, color: it.done ? "#94A3B8" : "#0F172A", textDecoration: it.done ? "line-through" : "none" }}>
-                              {isTask && "🔧 "}{it.name}
-                            </div>
-                            <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 1 }}>
-                              {!isTask && it.qty ? `${it.qty} ${it.unit}` : ""}
-                              {it.promoQty > 0 && it.promoPrice > 0 ? ` · 🏷️ ${it.promoQty}+ a ${brl(it.promoPrice)}` : ""}
-                              {num(it.parcels) > 0 && num(it.price) > 0 ? ` · 💳 ${Math.round(num(it.parcels))}x de ${brl((num(it.price) * num(it.qty)) / num(it.parcels))}` : ""}
-                              {it.note ? `${(!isTask && it.qty) || it.promoQty || num(it.parcels) > 0 ? " · " : ""}${it.note}` : ""}
-                            </div>
-                          </div>
-                          {!isTask && t > 0 && (
-                            <div style={{ ...S.priceTag, background: BGS[list.color], color: list.color }}>{brl(t)}</div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              });
-            })()}
-
-            <button onClick={() => setEditItem({ _new: true, name: "", qty: 1, unit: "un", note: "", area: (list.areas && list.areas[0]) || "", price: 0, promoQty: 0, promoPrice: 0, parcels: 0, done: false, kind: "buy" })}
-              style={{ ...S.addListBtn, borderColor: list.color, color: list.color }}>
-              + Adicionar item
-            </button>
-
-            {list.items.some((i) => i.done) && (
-              <button onClick={() => setShowFinish(true)} style={{ ...S.finishBtn, background: list.color }}>
-                ✅ Finalizar compra ({brl(listTotal)})
-              </button>
-            )}
-
-            <button onClick={() => setConfirmAsk({
-                title: "Excluir esta lista?",
-                message: `A lista "${list.name}" e todos os seus itens serão removidos. Esta ação não pode ser desfeita.`,
-                danger: true,
-                onYes: () => deleteList(list.id),
-              })}
-              style={S.deleteListBtn}>Excluir esta lista</button>
-          </div>
-        </>
-      )}
-
-      {/* ============ HISTÓRICO ============ */}
-      {view === "history" && (
-        <>
-          <Header title="📜 Histórico" subtitle="Compras finalizadas" onBack={() => setView("lists")} />
-          <div style={S.container}>
-            {data.history.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "60px 0", color: "#94A3B8" }}>
-                <div style={{ fontSize: 44, marginBottom: 10 }}>🗒️</div>
-                Nenhuma compra finalizada ainda.
-              </div>
-            ) : (
-              <>
-                <div style={{ ...S.totalBar, borderColor: "#10B981", marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 12, color: "#64748B" }}>Total gasto (histórico)</div>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: "#10B981" }}>
-                      {brl(data.history.reduce((a, h) => a + (h.paid != null ? h.paid : h.total), 0))}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 13, color: "#94A3B8" }}>{data.history.length} compras</div>
-                </div>
-                {data.history.map((h) => (
-                  <div key={h.id} style={S.histCard}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{h.icon} {h.listName}</div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontWeight: 800, color: "#10B981" }}>{brl(h.paid != null ? h.paid : h.total)}</div>
-                        {h.paid != null && (
-                          <div style={{ fontSize: 11, color: "#94A3B8" }}>estimado {brl(h.total)}</div>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 8 }}>
-                      {new Date(h.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                    <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.7 }}>
-                      {h.items.map((i, x) => (
-                        <div key={x} style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span>{i.name} {i.qty ? `(${i.qty} ${i.unit})` : ""}</span>
-                          <span style={{ color: "#94A3B8" }}>{i.total > 0 ? brl(i.total) : "—"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* ============ MODAL: editar/criar item ============ */}
-      {editItem && (
-        <ItemModal
-          item={editItem}
-          color={list ? list.color : "#3B82F6"}
-          isRoom={list && list.type === "room"}
-          feature={(list && list.feature) || "promo"}
-          areas={(list && list.areas) || []}
-          onClose={() => setEditItem(null)}
-          onSave={saveItem}
-          onDelete={!editItem._new ? () => deleteItem(editItem.id) : null}
-        />
-      )}
-
-      {/* ============ MODAL: nova lista ============ */}
-      {showNewList && <NewListModal onClose={() => setShowNewList(false)} onCreate={addList} />}
-
-      {/* ============ MODAL: orçamento ============ */}
-      {showBudget && list && (
-        <BudgetModal current={list.budget} color={list.color} onClose={() => setShowBudget(false)} onSave={setBudget} />
-      )}
-
-      {/* ============ MODAL: confirmar finalizar ============ */}
-      {showFinish && list && (
-        <FinishModal
-          count={list.items.filter((i) => i.done).length}
-          estimated={listTotal}
-          onClose={() => setShowFinish(false)}
-          onConfirm={finishShopping}
-        />
-      )}
-
-      {/* ============ MODAL: confirmação genérica ============ */}
-      {confirmAsk && (
-        <ConfirmModal
-          info={confirmAsk}
-          onClose={() => setConfirmAsk(null)}
-          onYes={() => { confirmAsk.onYes(); setConfirmAsk(null); }}
-        />
-      )}
-
-      {/* toast */}
-      {toast && <div style={S.toast}>{toast}</div>}
-    </div>
-  );
-}
-
-/* ================= COMPONENTES ================= */
-function Header({ title, subtitle, onBack, color }) {
-  return (
-    <div style={{ ...S.header, background: color ? `linear-gradient(135deg, ${color} 0%, #0F172A 160%)` : "linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%)" }}>
-      <div style={{ maxWidth: 480, margin: "0 auto" }}>
-        {onBack && (
-          <button onClick={onBack} style={S.backBtn}>‹ Voltar</button>
-        )}
-        <h1 style={{ margin: "8px 0 2px", fontSize: 24, fontWeight: 800, letterSpacing: -0.5 }}>{title}</h1>
-        <div style={{ fontSize: 13, opacity: 0.8 }}>{subtitle}</div>
-      </div>
-    </div>
-  );
-}
-
-function SegBtns({ extra }) {
-  return <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>{extra}</div>;
-}
-
-function ItemModal({ item, color, isRoom, feature, areas, onClose, onSave, onDelete }) {
-  const [f, setF] = useState(item);
-  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
-  const isTask = f.kind === "task";
-  const preview = itemTotal(f);
-
-  return (
-    <Modal onClose={onClose}>
-      <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>{item._new ? "Novo item" : "Editar item"}</h3>
-
-      {areas && areas.length > 0 && (
-        <Field label={isRoom ? "Cômodo" : "Área"}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {areas.map((a) => (
-              <button key={a} onClick={() => set("area", a)}
-                style={{ padding: "7px 12px", borderRadius: 99, fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  border: f.area === a ? `2px solid ${color}` : "1px solid #E2E8F0",
-                  background: f.area === a ? color : "#fff", color: f.area === a ? "#fff" : "#475569" }}>{a}</button>
-            ))}
-          </div>
-        </Field>
-      )}
-
-      {isRoom && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          {[["buy", "🛒 Compra"], ["task", "🔧 Tarefa"]].map(([k, lbl]) => (
-            <button key={k} onClick={() => set("kind", k)}
-              style={{ ...S.filterBtn, flex: 1, ...(f.kind === k ? { background: color, color: "#fff", borderColor: color } : {}) }}>{lbl}</button>
-          ))}
-        </div>
-      )}
-
-      <Field label="Nome">
-        <input style={S.input} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Ex: Arroz" autoFocus />
-      </Field>
-
-      {!isTask && (
-        <>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Field label="Quantidade" flex>
-              <input style={S.input} type="number" inputMode="decimal" value={f.qty} onChange={(e) => set("qty", e.target.value)} />
-            </Field>
-            <Field label="Unidade" flex>
-              <input style={S.input} value={f.unit} onChange={(e) => set("unit", e.target.value)} placeholder="un, kg, pct" />
-            </Field>
-          </div>
-
-          <Field label="Preço unitário (R$)">
-            <input style={S.input} type="number" inputMode="decimal" value={f.price} onChange={(e) => set("price", e.target.value)} placeholder="0,00" />
-          </Field>
-
-          {/* MERCADO: Promoção por quantidade mínima */}
-          {feature === "promo" && (
-            <>
-              <div style={{ background: "#FEF3C7", borderRadius: 12, padding: 12, margin: "4px 0 12px" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 8 }}>🏷️ Preço promocional por quantidade (opcional)</div>
-                <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-                  <Field label="A partir de (qtd)" flex small>
-                    <input style={S.input} type="number" inputMode="decimal" value={f.promoQty} onChange={(e) => set("promoQty", e.target.value)} placeholder="10" />
-                  </Field>
-                  <span style={{ paddingBottom: 12, color: "#92400E" }}>→</span>
-                  <Field label="Preço da unidade (R$)" flex small>
-                    <input style={S.input} type="number" inputMode="decimal" value={f.promoPrice} onChange={(e) => set("promoPrice", e.target.value)} placeholder="3,29" />
-                  </Field>
-                </div>
-                <div style={{ fontSize: 11.5, color: "#92400E", marginTop: 6, opacity: 0.8 }}>
-                  Ex: a partir de 10 un, cada uma sai por 3,29 (abaixo disso, usa o preço unitário acima).
-                </div>
-              </div>
-              {num(f.promoQty) > 0 && num(f.promoPrice) > 0 && (
-                <div style={{ textAlign: "center", fontSize: 12.5, fontWeight: 600, color: num(f.qty) >= num(f.promoQty) ? "#16A34A" : "#94A3B8", marginBottom: 4 }}>
-                  {num(f.qty) >= num(f.promoQty)
-                    ? `✅ Promoção aplicada (${f.qty} ≥ ${f.promoQty} un)`
-                    : `Faltam ${num(f.promoQty) - num(f.qty)} un para o preço promocional`}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* CASA: Parcelamento */}
-          {feature === "installment" && (
-            <div style={{ background: "#EDE9FE", borderRadius: 12, padding: 12, margin: "4px 0 12px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#5B21B6" }}>💳 Parcelado?</span>
-                <button onClick={() => set("parcels", num(f.parcels) > 0 ? 0 : 2)}
-                  style={{ border: "none", borderRadius: 99, padding: "5px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    background: num(f.parcels) > 0 ? "#7C3AED" : "#fff", color: num(f.parcels) > 0 ? "#fff" : "#7C3AED", boxShadow: "0 0 0 1px #DDD6FE" }}>
-                  {num(f.parcels) > 0 ? "Sim" : "Não / à vista"}
-                </button>
-              </div>
-              {num(f.parcels) > 0 && (
-                <>
-                  <Field label="Em quantas vezes?" small>
-                    <input style={S.input} type="number" inputMode="numeric" value={f.parcels} onChange={(e) => set("parcels", e.target.value)} placeholder="12" />
-                  </Field>
-                  <div style={{ fontSize: 12.5, color: "#5B21B6", marginTop: 4, textAlign: "center", fontWeight: 600 }}>
-                    {num(f.parcels) >= 1 && num(f.price) > 0
-                      ? `${brl(num(f.price) * num(f.qty))} em ${Math.round(num(f.parcels))}x de ${brl((num(f.price) * num(f.qty)) / num(f.parcels))}`
-                      : "Preencha o preço acima para ver a parcela"}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          <div style={{ textAlign: "center", padding: "8px 0", fontSize: 15, fontWeight: 700, color }}>
-            Subtotal: {brl(preview)}
-          </div>
-        </>
-      )}
-
-      <Field label="Observação">
-        <input style={S.input} value={f.note} onChange={(e) => set("note", e.target.value)} placeholder="Atacado, marca, etc." />
-      </Field>
-
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        {onDelete && <button onClick={onDelete} style={S.btnDanger}>Excluir</button>}
-        <button onClick={onClose} style={S.btnSecondary}>Cancelar</button>
-        <button onClick={() => f.name.trim() && onSave(f)} style={{ ...S.btnPrimary, background: color }}>Salvar</button>
-      </div>
-    </Modal>
-  );
-}
-
-function ConfirmModal({ info, onClose, onYes }) {
-  return (
-    <Modal onClose={onClose}>
-      <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>{info.title}</h3>
-      <p style={{ color: "#64748B", fontSize: 14, margin: "0 0 18px", lineHeight: 1.5 }}>{info.message}</p>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={onClose} style={S.btnSecondary}>Cancelar</button>
-        <button onClick={onYes} style={{ ...S.btnPrimary, background: info.danger ? "#DC2626" : "#10B981" }}>
-          {info.danger ? "Excluir" : "Confirmar"}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-function BudgetModal({ current, color, onClose, onSave }) {
-  const [v, setV] = useState(current > 0 ? String(current) : "");
-  return (
-    <Modal onClose={onClose}>
-      <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>Orçamento da compra</h3>
-      <p style={{ color: "#64748B", fontSize: 14, margin: "0 0 14px" }}>
-        Quanto você quer gastar nesta lista? O app vai mostrar o saldo conforme você marca os itens.
-      </p>
-      <Field label="Valor do orçamento (R$)">
-        <input style={S.input} type="number" inputMode="decimal" value={v} onChange={(e) => setV(e.target.value)} placeholder="Ex: 1000,00" autoFocus />
-      </Field>
-      <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-        {current > 0 && <button onClick={() => onSave(0)} style={S.btnDanger}>Remover</button>}
-        <button onClick={onClose} style={S.btnSecondary}>Cancelar</button>
-        <button onClick={() => onSave(v)} style={{ ...S.btnPrimary, background: color }}>Salvar</button>
-      </div>
-    </Modal>
-  );
-}
-
-function FinishModal({ count, estimated, onClose, onConfirm }) {
-  const [paid, setPaid] = useState("");
-  const diff = num(paid) - estimated;
-  return (
-    <Modal onClose={onClose}>
-      <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>Finalizar compra?</h3>
-      <p style={{ color: "#64748B", fontSize: 14, margin: "0 0 14px" }}>
-        {count} itens marcados serão salvos no histórico. A lista será reiniciada pra próxima vez.
-      </p>
-      <div style={{ background: "#F1F5F9", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between" }}>
-        <span style={{ color: "#64748B", fontSize: 14 }}>Total estimado</span>
-        <strong style={{ color: "#0F172A" }}>{brl(estimated)}</strong>
-      </div>
-      <Field label="Quanto você pagou de verdade? (opcional)">
-        <input style={S.input} type="number" inputMode="decimal" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="Ex: 950,00" autoFocus />
-      </Field>
-      {num(paid) > 0 && (
-        <div style={{ textAlign: "center", fontSize: 13, fontWeight: 600, marginBottom: 10, color: diff <= 0 ? "#16A34A" : "#DC2626" }}>
-          {diff === 0 ? "Bateu certinho com o estimado" : diff < 0 ? `Economizou ${brl(Math.abs(diff))} 🎉` : `Passou ${brl(diff)} do estimado`}
-        </div>
-      )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={onClose} style={S.btnSecondary}>Cancelar</button>
-        <button onClick={() => onConfirm(paid)} style={{ ...S.btnPrimary, background: "#10B981" }}>Confirmar</button>
-      </div>
-    </Modal>
-  );
-}
-
-function NewListModal({ onClose, onCreate }) {
-  const [name, setName] = useState("");
-  const [icon, setIcon] = useState("📦");
-  const [color, setColor] = useState("#3B82F6");
-  const [areasText, setAreasText] = useState("");
-  return (
-    <Modal onClose={onClose}>
-      <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Nova lista / cômodo</h3>
-      <Field label="Nome"><input style={S.input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Sala, Quarto, Farmácia" autoFocus /></Field>
-      <Field label="Áreas / divisões (separe por vírgula — opcional)">
-        <input style={S.input} value={areasText} onChange={(e) => setAreasText(e.target.value)} placeholder="Ex: Armário, Geladeira, Limpeza" />
-      </Field>
-      <Field label="Ícone">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {ICONS.map((ic) => (
-            <button key={ic} onClick={() => setIcon(ic)} style={{ fontSize: 20, width: 40, height: 40, borderRadius: 10, border: icon === ic ? "2px solid #2563EB" : "1px solid #E2E8F0", background: icon === ic ? "#DBEAFE" : "#fff", cursor: "pointer" }}>{ic}</button>
-          ))}
-        </div>
-      </Field>
-      <Field label="Cor">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {COLORS.map((c) => (
-            <button key={c} onClick={() => setColor(c)} style={{ width: 34, height: 34, borderRadius: 99, background: c, border: color === c ? "3px solid #0F172A" : "2px solid #fff", boxShadow: "0 0 0 1px #E2E8F0", cursor: "pointer" }} />
-          ))}
-        </div>
-      </Field>
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button onClick={onClose} style={S.btnSecondary}>Cancelar</button>
-        <button onClick={() => name.trim() && onCreate(name, icon, color, areasText.split(",").map((a) => a.trim()).filter(Boolean))} style={{ ...S.btnPrimary, background: color }}>Criar</button>
-      </div>
-    </Modal>
-  );
-}
-
-function Modal({ children, onClose }) {
-  return (
-    <div onClick={onClose} style={S.overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={S.modal}>{children}</div>
-    </div>
-  );
-}
-
-function Field({ label, children, flex, small }) {
-  return (
-    <div style={{ marginBottom: 12, flex: flex ? 1 : undefined }}>
-      <label style={{ display: "block", fontSize: small ? 11 : 12.5, fontWeight: 600, color: "#64748B", marginBottom: 5 }}>{label}</label>
-      {children}
-    </div>
-  );
-}
-
-/* ================= ESTILOS ================= */
-const S = {
-  page: { fontFamily: "'Segoe UI', -apple-system, sans-serif", minHeight: "100vh", background: "#F1F5F9", paddingBottom: 40 },
-  container: { maxWidth: 480, margin: "16px auto 0", padding: "0 14px" },
-  header: { padding: "24px 18px 22px", color: "#fff" },
-  backBtn: { background: "rgba(255,255,255,0.18)", border: "none", color: "#fff", padding: "5px 12px", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 },
-  listCard: { background: "#fff", borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.07)", cursor: "pointer" },
-  listIcon: { width: 46, height: 46, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 },
-  addListBtn: { width: "100%", padding: "13px", borderRadius: 13, border: "2px dashed #CBD5E1", background: "transparent", color: "#64748B", fontWeight: 600, fontSize: 14.5, cursor: "pointer", marginTop: 6 },
-  ghostBtn: { background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, padding: "7px 13px", fontSize: 13, fontWeight: 600, color: "#475569", cursor: "pointer" },
-  totalBar: { background: "#fff", borderRadius: 14, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderLeft: "5px solid", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" },
-  filterBtn: { flex: 1, padding: "9px 0", borderRadius: 10, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 13.5, fontWeight: 600, cursor: "pointer" },
-  item: { display: "flex", alignItems: "center", padding: "13px 14px", borderRadius: 13, marginBottom: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" },
-  check: { width: 24, height: 24, borderRadius: 7, border: "2px solid", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" },
-  priceTag: { borderRadius: 9, padding: "5px 11px", fontSize: 13.5, fontWeight: 800, flexShrink: 0, marginLeft: 8 },
-  finishBtn: { width: "100%", padding: "15px", borderRadius: 13, border: "none", color: "#fff", fontWeight: 800, fontSize: 15.5, cursor: "pointer", marginTop: 14, boxShadow: "0 4px 14px rgba(16,185,129,0.3)" },
-  deleteListBtn: { width: "100%", padding: "11px", borderRadius: 11, border: "none", background: "transparent", color: "#EF4444", fontWeight: 600, fontSize: 13, cursor: "pointer", marginTop: 10 },
-  histCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" },
-  overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100, padding: 0 },
-  modal: { background: "#fff", borderRadius: "20px 20px 0 0", padding: "22px 18px calc(22px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 -8px 30px rgba(0,0,0,0.2)" },
-  input: { width: "100%", padding: "11px 13px", borderRadius: 10, border: "1.5px solid #E2E8F0", fontSize: 16, boxSizing: "border-box", outline: "none", background: "#F8FAFC" },
-  btnPrimary: { flex: 2, padding: "13px", borderRadius: 11, border: "none", color: "#fff", fontWeight: 700, fontSize: 15, cursor: "pointer" },
-  btnSecondary: { flex: 1, padding: "13px", borderRadius: 11, border: "1.5px solid #E2E8F0", background: "#fff", color: "#475569", fontWeight: 600, fontSize: 15, cursor: "pointer" },
-  btnDanger: { flex: 1, padding: "13px", borderRadius: 11, border: "none", background: "#FEE2E2", color: "#EF4444", fontWeight: 700, fontSize: 14, cursor: "pointer" },
-  toast: { position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0F172A", color: "#fff", padding: "12px 20px", borderRadius: 12, fontSize: 14, fontWeight: 600, zIndex: 200, boxShadow: "0 6px 20px rgba(0,0,0,0.3)" },
-};
-
-
-// Monta o app na tela (ou mostra erro de configuração)
-if (!sb) {
-  document.getElementById("erro").style.display = "block";
-  document.getElementById("erro").innerHTML =
-    "<b>Falta configurar o Supabase.</b><br><br>" +
-    "Abra o arquivo index.html e cole a Project URL e a anon key no bloco de configuração, " +
-    "conforme o guia. Depois publique de novo.";
-} else {
-  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-}
+// Tenta iniciar; se as bibliotecas ainda não chegaram, espera e tenta de novo
+(function aguardar(tentativas){
+  if (typeof React !== "undefined" && typeof ReactDOM !== "undefined" && window.supabase) {
+    iniciarApp();
+  } else if (tentativas > 0) {
+    setTimeout(function(){ aguardar(tentativas - 1); }, 150);
+  } else {
+    var e = document.getElementById("erro");
+    e.style.display = "block";
+    e.innerHTML = "<b>Não foi possível carregar as bibliotecas.</b><br>Verifique sua conexão com a internet e recarregue a página.";
+  }
+})(40);
 </script>
 </body>
 </html>
